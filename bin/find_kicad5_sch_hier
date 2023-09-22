@@ -58,10 +58,10 @@ sheet_instances()
 	local uuid
 
 	kicad_sch="${1}"
-	inst_name=$(grep -e "F[0]" "${kicad_sch}" | cut -d" " -f2 | sed "s/\"//g")
-	inst_file=$(grep -e "F[1]" "${kicad_sch}" | cut -d" " -f2 | sed "s/\"//g")
+	inst_name=$(grep -e "F0 " "${kicad_sch}" | cut -d" " -f2 | sed "s/\"//g")
+	inst_file=$(grep -e "F1 " "${kicad_sch}" | cut -d" " -f2 | sed "s/\"//g")
 	uuid=$(echo "${inst_name}" | sed "s|.*|xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx|g")
-
+	
 	paste -d "|" <(printf %s "${uuid}") <(printf %s "${inst_name}") <(printf %s "${inst_file}")
 }
 
@@ -93,7 +93,7 @@ find_pages()
 
 		IFS=$'\n'
 		sch_instances=($(sheet_instances "${current_sch}" | sort -n))
-
+		
 		for inst in "${sch_instances[@]}"; do
 
 			sch_inst_name=$(echo "${inst}" | cut -d"|" -f2)

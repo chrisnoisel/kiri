@@ -181,6 +181,34 @@ close_eeschema()
 
 	xdotool key --window "${win_id}" "ctrl+q"
 	sleep "${TIME}"
+	
+	# check if popup appears when closing eeschema
+
+	tries=3
+	win_id2=$(xdotool search --onlyvisible --classname "Eeschema" | tail -n 1)
+	while [[ -n "$win_id2" ]] && [[ "$win_id2" != "$win_id" ]] && [[ $tries > 0 ]]
+	do
+		win_title=$(xwininfo -tree -id "${win_id2}" 2>/dev/null | grep "xwininfo:" | cut -d" " -f5- | sed "s/\"//g")
+
+		if [[ "$win_title" == "Save Changes"* ]]
+		then
+			xdotool key --window "${win_id2}" "Left" &> /dev/null
+			sleep "${TIME}"
+		
+			xdotool key --window "${win_id2}" "Left" &> /dev/null
+			sleep "${TIME}"
+		
+			xdotool key --window "${win_id2}" "Enter" &> /dev/null
+			sleep "${TIME}"
+		else
+			# unknown popup
+			echo "unknown popup title: '$win_title'" >&2
+			break
+		fi
+	
+		win_id2=$(xdotool search --onlyvisible --classname "Eeschema" | tail -n 1)
+		tries=$(( $tries - 1 ))
+	done
 }
 
 kill_eeschema()
@@ -333,16 +361,26 @@ launch_plot_window()
 	sleep "${TIME}"
 	xdotool key --window "${win_id}" "Return"
 	sleep "${TIME}"
+
+	# type output directory as config from project file fails sometime
+	xdotool type --window "${win_id}" "${2}"
+	sleep "${TIME}"
 }
 
 wait_until_plot_finishes()
 {
 	local plot_dir="${1}"
-	until [[ "$(ls -1 ${plot_dir}/*.svg | wc -l)" -ge "1" ]]; do
-		# echo "Waiting plotting..."
-		sleep ${TIME}
+	
+	prev=0
+	count=$(ls -1 ${plot_dir}/*.svg | wc -l)
+	# wait while the svg count keeps changing
+	while [[ $count == 0 ]] || [[ $count != $prev ]]
+	do
+		sleep 0.5
+		prev=$count
+		count=$(ls -1 ${plot_dir}/*.svg | wc -l)
 	done
-	sleep ${TIME}
+	#sleep ${TIME}
 }
 
 plot_schematics()
@@ -356,6 +394,10 @@ plot_schematics()
 	# Plot
 	xdotool key --window "${win_id}" "Return"
 	wait_until_plot_finishes "${plot_dir}"
+
+	# loose focus from input text (output file path)
+	xdotool key --window "${win_id}" "Escape"
+	sleep ${TIME}
 
 	# Close the popup
 	xdotool key --window "${win_id}" "Escape"
@@ -416,17 +458,22 @@ main()
 	echo -e " Kicad project = ${kicad_prj}"
 
 	local temp_dir=$(mktemp -d -p "${output_dir_path}")
-	local output_temp_dir_path="${output_dir_path}/${temp_dir}"
+	local output_temp_dir_path="${temp_dir}"
 	mkdir -p "${output_temp_dir_path}" &> /dev/null
 
 	set_default_plot_settings
 	set_plot_output_directory "${kicad_prj}" "${output_temp_dir_path}"
 
 	launch_eeschema "${kicad_sch_path}" #&> /dev/null
-	launch_plot_window "${EESCHEMA_WID}" 2> /dev/null
+	launch_plot_window "${EESCHEMA_WID}" "${output_temp_dir_path}" 2> /dev/null
 	plot_schematics "${EESCHEMA_WID}" "${output_temp_dir_path}" 2> /dev/null
 	close_eeschema "${EESCHEMA_WID}" 2> /dev/null
-	kill_eeschema
+	
+	# give eeschema some slack
+	# killing the process will left the ~lock file on the disk
+	# TODO: dismiss the popup "file already opened elsewhere"
+	sleep 3
+	#kill_eeschema
 	echo
 
 	# Organize generated files for KiRI
@@ -437,7 +484,7 @@ main()
 		echo "> ${svg_file}"
 	done
 
-	mkdir -p "${output_dir_path}/kiri/sch/" &> /dev/null
+	mkdir -p "${output_dir_path}/_KIRI_/sch/" &> /dev/null
 
 	echo "Renaming files:"
 	if [[ -n ${svg_file_paths} ]]; then
@@ -445,12 +492,12 @@ main()
 		for svg_file in "${svg_file_paths[@]}"; do
 
 			svg_file_name=$(basename "${svg_file%.*}")
-			match_line_no=$(cat "${output_dir_path}/kiri/sch_sheets" | grep -m1 -n "|${svg_file_name}$" | cut -d":" -f1)
+			match_line_no=$(cat "${output_dir_path}/_KIRI_/sch_sheets" | grep -m1 -n "|${svg_file_name}$" | cut -d":" -f1)
 
 			if [[ -n "${match_line_no}" ]]; then
-				new_svg_file="$(sed -n ${match_line_no}p "${output_dir_path}/kiri/sch_sheets" | cut -f1 -d"|").svg"
-				echo "${svg_file} -> ${output_dir_path}/kiri/sch/${new_svg_file}" 2>&1
-				cp -f "${svg_file}" "${output_dir_path}/kiri/sch/${new_svg_file}" 2> /dev/null
+				new_svg_file="$(sed -n ${match_line_no}p "${output_dir_path}/_KIRI_/sch_sheets" | cut -f1 -d"|").svg"
+				echo "${svg_file} -> ${output_dir_path}/_KIRI_/sch/${new_svg_file}" 2>&1
+				cp -f "${svg_file}" "${output_dir_path}/_KIRI_/sch/${new_svg_file}" 2> /dev/null
 			fi
 		done
 	fi

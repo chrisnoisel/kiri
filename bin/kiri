@@ -1385,13 +1385,12 @@ parse_layout_layers()
 	# (2 "In2.Cu" power|signal|user hide "Pwr")
 
 	local layers=$( \
-		sed -n '/^  (layers/,/  )$/{/^  (layers/!{/  )$/!p}}' "${kicad_pcb}" | \
-		sed "s/^[ \t]\+//g" | \
-		sed "s/[()]//g" | \
-		sed "s/\r$//g" | \
-		sed "s/\"//g" | \
-		sed '/^[[:space:]]*$/d' | \
-		sed -r "s/ (signal|user|power|hide)//g" | \
+		cat "${kicad_pcb}" | \
+		tr -d '\r\n' | \
+		grep -Eo '\(layers(\s*\([^)]+\))+' | \
+		tr '(' '\n' | tr -d '()' | \
+		sed -E 's/([0-9]+)\s+"?([^"\s]+)"?[^"]*("\S+")?\s*$/\1 \2 \3/' | \
+		tail -n+3 | \
 		awk -F '[ ]' '{if ($3) {printf "%s|%s\n", $1, $3} else {printf "%s|%s\n", $1, $2}}')
 
 	printf "%s\n" "${layers}"
@@ -1473,7 +1472,7 @@ manual_schematic_plot()
 		if [[ "${SKIP_KICAD_6}" == "0" ]] && [[ ! "${OSTYPE}" =~ "darwin" ]]; then
 
 			if [[ -z ${PLOT_TIMEOUT} ]]; then
-				PLOT_TIMEOUT=5
+				PLOT_TIMEOUT=15
 			fi
 
 			msg="# Plotting schematics ${commit_hash}"
@@ -1499,8 +1498,11 @@ manual_schematic_plot()
 	else
 
 		if [[ -f "${kicad_sch}" ]]; then
-
+			
+			# need to be in the working tree to run a git command
+			cd - &> /dev/null || exit
 			all_kicad_sch_files=("${kicad_sch}" $(get_kicad_sch_pages "${kicad_sch}" ${commit_hash}))
+			cd "${OUTPUT_DIR_PATH}/${commit_hash}/" &> /dev/null || exit
 
 			svg_dir_path="${OUTPUT_DIR_PATH}/${commit_hash}/_KIRI_/sch"
 			mkdir -p "${svg_dir_path}"
@@ -1539,7 +1541,7 @@ manual_schematic_plot()
 
 							echo -e "   ${LRE}Plotkicadsch has failed (${commit_hash}), using xdotool way instead.${RCO}"
 
-							PLOTPCB_TIMEOUT=5
+							PLOTPCB_TIMEOUT=15
 
 							# TESTING: Plokicadsch has failed, then usig GUI
 							# IF THIS IS GOOD. Then it is better to organize this function main_if order here to avoid repetition
@@ -2276,7 +2278,10 @@ get_kicad_sch()
 			basename "$(find "${kicad_proj_path}" -maxdepth 1 -name "${kicad_proj_name}\.sch")"
 			;;
 		"kicad_pro")
-			basename "$(find "${kicad_proj_path}" -maxdepth 1 -name "${kicad_proj_name}\.kicad_sch")"
+		
+			# as a matter of fact a .kicad_pro *can* use an .sch file
+			# search for .kicad_sch then fall back to .sch
+			basename "$(find "${kicad_proj_path}" -maxdepth 1 -name "${kicad_proj_name}\.*sch" | sort | head -n 1)"
 			;;
 	esac
 }
